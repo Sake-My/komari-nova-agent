@@ -20,7 +20,7 @@ import (
 
 var (
 	CurrentVersion string = "0.0.1"
-	Repo           string = "Sake-My/agent-no-webssh"
+	Repo           string = "Sake-My/komari-nova-agent"
 )
 
 const (
