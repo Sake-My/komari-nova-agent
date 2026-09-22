@@ -8,7 +8,11 @@ permissions:
   contents: write
 
 jobs:
+  test-update:
+    uses: ./.github/workflows/update-tests.yml
+
   build-and-attach:
+    needs: test-update
     if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
 
@@ -50,7 +54,9 @@ jobs:
             # macOS binaries typically do not have a file extension
             true
           fi
-            go build -trimpath -ldflags="-X github.com/komari-monitor/komari-agent/update.CurrentVersion=${VERSION}" -o $BINARY_NAME
+          go build -trimpath -ldflags="-X github.com/komari-monitor/komari-agent/update.CurrentVersion=${VERSION}" -o $BINARY_NAME
+          go version -m "$BINARY_NAME" | grep -F "GOOS=$GOOS"
+          go version -m "$BINARY_NAME" | grep -F "GOARCH=$GOARCH"
 
       - name: Upload binary to release
         env:

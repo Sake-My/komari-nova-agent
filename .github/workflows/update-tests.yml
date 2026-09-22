@@ -1,0 +1,49 @@
+name: Test Auto Update
+
+on:
+  push:
+    paths:
+      - 'update/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/update-tests.yml'
+  pull_request:
+    paths:
+      - 'update/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/update-tests.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check update formatting
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l update/*.go)"
+          if [ -n "$unformatted" ]; then
+            printf 'Go files require formatting:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Test auto update
+        run: go test ./update

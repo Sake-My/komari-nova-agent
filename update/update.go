@@ -242,38 +242,36 @@ func selfUpdateReleaseFromSnapshot(owner, repo string, candidate snapshotRelease
 func DoUpdateWorks() {
 	ticker_ := time.NewTicker(time.Duration(6) * time.Hour)
 	for range ticker_.C {
-		CheckAndUpdate()
+		if err := CheckAndUpdate(); err != nil {
+			log.Println("[ERROR] Auto-update failed:", err)
+		}
 	}
 }
 
 func checkAndUpdateStable(currentSemVer semver.Version, updater *selfupdate.Updater) error {
-	latest, err := updater.UpdateSelf(currentSemVer, Repo)
+	latest, found, err := updater.DetectLatest(Repo)
 	if err != nil {
-		return fmt.Errorf("failed to check for updates: %v", err)
+		return fmt.Errorf("failed to check for updates: %w", err)
 	}
 
-	if latest.Version.Equals(currentSemVer) {
+	if !found || !needUpdate(currentSemVer, latest.Version) {
 		log.Println("Current version is the latest:", CurrentVersion)
 		return nil
 	}
-	// Default is installed as a service, so don't automatically restart
-	//execPath, err := os.Executable()
-	//if err != nil {
-	//	return fmt.Errorf("failed to get current executable path: %v", err)
-	//}
-
-	// _, err = os.StartProcess(execPath, os.Args, &os.ProcAttr{
-	// 	Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-	// })
-	// if err != nil {
-	// 	return fmt.Errorf("failed to restart program: %v", err)
-	// }
+	cmdPath, err := currentExecutablePath()
+	if err != nil {
+		return fmt.Errorf("failed to resolve current executable path: %w", err)
+	}
+	if err := updateRelease(latest, cmdPath); err != nil {
+		return fmt.Errorf("failed to update to version %s: %w", latest.Version, err)
+	}
+	// 由服务管理器在替换成功后重启，下载或校验失败时继续运行旧程序。
 	log.Printf("Successfully updated to version %s\n", latest.Version)
 	os.Exit(42)
 	return nil
 }
 
-func checkAndUpdateSnapshot(updater *selfupdate.Updater) error {
+func checkAndUpdateSnapshot() error {
 	if isContainerAgent() {
 		log.Println("Snapshot agent is running in a container; skip binary self-update. Refresh the ghcr.io image tagged 'snapshot' instead.")
 		return nil
@@ -307,7 +305,7 @@ func checkAndUpdateSnapshot(updater *selfupdate.Updater) error {
 	}
 
 	log.Printf("Will update %s from snapshot %s to %s\n", cmdPath, CurrentVersion, latest.TagName)
-	if err := updater.UpdateTo(selfUpdateReleaseFromSnapshot(owner, repo, latest), cmdPath); err != nil {
+	if err := updateRelease(selfUpdateReleaseFromSnapshot(owner, repo, latest), cmdPath); err != nil {
 		return fmt.Errorf("failed to update to snapshot %s: %w", latest.TagName, err)
 	}
 
@@ -321,13 +319,12 @@ func CheckAndUpdate() error {
 	log.Println("Checking update...")
 
 	http.DefaultClient = dnsresolver.GetHTTPClient(60 * time.Second)
+	if detectBuildTrack(CurrentVersion) == snapshotTrack {
+		return checkAndUpdateSnapshot()
+	}
 	updater, err := selfupdate.NewUpdater(selfupdate.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create updater: %v", err)
-	}
-
-	if detectBuildTrack(CurrentVersion) == snapshotTrack {
-		return checkAndUpdateSnapshot(updater)
 	}
 
 	currentSemVer, err := parseVersion(CurrentVersion)
